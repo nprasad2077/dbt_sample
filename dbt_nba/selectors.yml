@@ -1,0 +1,16 @@
+selectors:
+  - name: nba_pipeline
+    description: "Executes the full pipeline: Staging -> Intermediate -> Dimensions -> Facts"
+    default: false
+    definition:
+      union:
+        - method: tag
+          value: staging
+        - method: tag
+          value: intermediate
+        - method: tag
+          value: dimension
+        - method: tag
+          value: fact
+        - method: tag
+          value: marts

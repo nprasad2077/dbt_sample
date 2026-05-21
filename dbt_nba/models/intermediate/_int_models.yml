@@ -1,0 +1,58 @@
+---
+version: 2
+models:
+  - name: int_player_performance
+    description: "Unified model containing basic and advanced stats for each player in every game. Grain: one row per player per game."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - game_id
+            - player_id
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: player_id
+        tests:
+          - not_null
+
+  - name: int_team_performance
+    description: "Unified model containing basic and advanced stats for each team in every game. Grain: one row per team per game."
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - game_id
+            - team
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: team
+        tests:
+          - not_null
+
+  - name: int_games_enriched
+    description: "Game-level model enriched with detailed performance stats for both the home and visitor teams. Grain: one row per game."
+    columns:
+      - name: game_id
+        tests:
+          - unique
+          - not_null
+
+  - name: int_player_shots_enriched
+    description: >
+      Unified shot-level dataset combining field goal attempts (from shot charts)
+      with free throw attempts (derived from stg_player_game_basic_stats).
+      Grain: one row per shot attempt (FG or FT).
+    columns:
+      - name: shot_id
+        tests:
+          - not_null
+      - name: player_id
+        tests:
+          - not_null
+      - name: shot_source
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['shot_chart', 'box_score_ft']

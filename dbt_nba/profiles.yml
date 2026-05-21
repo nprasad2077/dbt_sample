@@ -1,0 +1,6 @@
+dbt_nba:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/DB/dbt_nba.duckdb

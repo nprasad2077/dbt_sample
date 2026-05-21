@@ -1,0 +1,39 @@
+team_abbr,full_name,start_year,end_year,is_current,source,notes
+ATL,Atlanta Hawks,1968,2026,TRUE,all,No changes since 1968
+BOS,Boston Celtics,1946,2026,TRUE,all,No changes since 1946
+BRK,Brooklyn Nets,2012,2026,TRUE,bref,Basketball-Reference abbreviation for Brooklyn
+CHA,Charlotte Bobcats,2004,2014,FALSE,bref,Renamed to Hornets in 2014; ESPN/NBA.com also use CHA for current Hornets
+CHH,Charlotte Hornets,1988,2002,FALSE,bref,Original Hornets; relocated to New Orleans after 2001-02
+CHI,Chicago Bulls,1966,2026,TRUE,all,No changes since 1966
+CHO,Charlotte Hornets,2014,2026,TRUE,bref,Basketball-Reference abbreviation; reclaimed original Hornets history
+CLE,Cleveland Cavaliers,1970,2026,TRUE,all,No changes since 1970
+DAL,Dallas Mavericks,1980,2026,TRUE,all,Expansion team 1980-81 season
+DEN,Denver Nuggets,1976,2026,TRUE,all,Joined NBA in 1976 from ABA
+DET,Detroit Pistons,1957,2026,TRUE,all,In Detroit since 1957
+GSW,Golden State Warriors,1971,2026,TRUE,all,Name changed from San Francisco Warriors in 1971
+HOU,Houston Rockets,1971,2026,TRUE,all,Moved from San Diego in 1971
+IND,Indiana Pacers,1976,2026,TRUE,all,Joined NBA in 1976 from ABA
+LAC,Los Angeles Clippers,1984,2026,TRUE,all,Relocated from San Diego
+LAL,Los Angeles Lakers,1960,2026,TRUE,all,Moved from Minneapolis in 1960
+MEM,Memphis Grizzlies,2001,2026,TRUE,all,Relocated from Vancouver
+MIA,Miami Heat,1988,2026,TRUE,all,Expansion team 1988-89 season
+MIL,Milwaukee Bucks,1968,2026,TRUE,all,No changes since 1968
+MIN,Minnesota Timberwolves,1989,2026,TRUE,all,Expansion team 1989-90 season
+NJN,New Jersey Nets,1977,2012,FALSE,all,Moved to Brooklyn after 2011-12 season
+NOH,New Orleans Hornets,2002,2005,FALSE,bref,Relocated from Charlotte; excludes NOK years; renamed Pelicans in 2013
+NOK,New Orleans/Oklahoma City Hornets,2005,2007,FALSE,bref,Hurricane Katrina temporary relocation; split home games
+NOP,New Orleans Pelicans,2013,2026,TRUE,all,Renamed from Hornets
+NYK,New York Knicks,1946,2026,TRUE,all,No changes since 1946
+OKC,Oklahoma City Thunder,2008,2026,TRUE,all,Relocated from Seattle
+ORL,Orlando Magic,1989,2026,TRUE,all,Expansion team 1989-90 season
+PHI,Philadelphia 76ers,1963,2026,TRUE,all,Moved from Syracuse in 1963
+PHO,Phoenix Suns,1968,2026,TRUE,bref,Basketball-Reference abbreviation
+POR,Portland Trail Blazers,1970,2026,TRUE,all,No changes since 1970
+SAC,Sacramento Kings,1985,2026,TRUE,all,Relocated from Kansas City
+SAS,San Antonio Spurs,1976,2026,TRUE,all,Joined NBA in 1976 from ABA
+SDC,San Diego Clippers,1978,1984,FALSE,bref,Moved to Los Angeles after 1983-84 season
+SEA,Seattle SuperSonics,1967,2008,FALSE,all,Relocated to Oklahoma City after 2007-08 season
+TOR,Toronto Raptors,1995,2026,TRUE,all,Expansion team 1995-96 season
+UTA,Utah Jazz,1979,2026,TRUE,all,Moved from New Orleans in 1979
+VAN,Vancouver Grizzlies,1995,2001,FALSE,all,Expansion team 1995-96; relocated to Memphis after 2000-01
+WAS,Washington Wizards,1997,2026,TRUE,all,Renamed from Bullets

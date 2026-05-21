@@ -1,0 +1,65 @@
+name: 'dbt_nba'
+version: '1.0.0'
+config-version: 2
+
+profile: 'dbt_nba'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  dbt_nba:
+    +materialized: view
+
+    staging:
+      +materialized: view
+      +schema: staging
+      +tags: ['staging']
+
+    intermediate:
+      +materialized: table
+      +schema: intermediate
+      +tags: ['intermediate']
+
+    marts:
+      +materialized: table
+      +schema: marts
+      +tags: ['marts']
+
+      dimensions:
+        +materialized: table
+        +tags: ['dimension']
+
+      facts:
+        +materialized: incremental
+        +tags: ['fact']
+
+tests:
+  dbt_nba:
+    +severity: warn
+    +store_failures: true
+    +schema: test_results
+
+seeds:
+  dbt_nba:
+    +schema: seeds
+
+vars:
+  start_date: '2002-10-01'
+  end_date: '2025-11-10'
+  min_games_played: 10
+  min_minutes_per_game: 15
+  clutch_time_minutes: 5
+  close_game_margin: 5
+  regular_season_start_month: 10
+  regular_season_end_month: 4
+  playoff_start_month: 4
+  playoff_end_month: 6

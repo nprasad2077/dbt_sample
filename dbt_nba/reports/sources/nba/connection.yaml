@@ -1,0 +1,4 @@
+name: nba
+type: duckdb
+options:
+  filename: dbt_nba.duckdb

@@ -1,0 +1,129 @@
+version: 2
+
+sources:
+  - name: raw_nba
+    description: Raw NBA data in DuckDB
+    schema: main
+    tables:
+      - name: games
+        description: Core game information including scores, teams, and venues
+        columns:
+          - name: game_id
+            tests:
+              - unique
+              - not_null
+      - name: line_scores
+        description: Quarter-by-quarter scoring breakdown
+        columns:
+          - name: game_id
+            tests:
+              - not_null
+      - name: player_game_basic_stats
+        description: Basic player statistics for each game
+        columns:
+          - name: game_id
+            tests:
+              - not_null
+          - name: player_id
+            tests:
+              - not_null
+      - name: player_game_adv_stats
+        description: Advanced player statistics for each game
+        columns:
+          - name: game_id
+            tests:
+              - not_null
+          - name: player_id
+            tests:
+              - not_null
+      - name: team_game_basic_stats
+        description: Basic team statistics for each game
+        columns:
+          - name: game_id
+            tests:
+              - not_null
+          - name: team
+            tests:
+              - not_null
+      - name: team_game_adv_stats
+        description: Advanced team statistics for each game
+        columns:
+          - name: game_id
+            tests:
+              - not_null
+          - name: team
+            tests:
+              - not_null
+      - name: player_shot_charts
+        description: Individual shot-level data from NBA player shot charts
+        columns:
+          - name: id
+            tests:
+              - unique
+              - not_null
+
+models:
+  - name: stg_games
+    description: Staged games data with cleaned fields and derived metrics
+    columns:
+      - name: game_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_line_scores
+    description: Staged quarter-by-quarter scoring with momentum metrics
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+
+  - name: stg_player_game_basic_stats
+    description: Staged player basic stats with calculated metrics
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: player_id
+        tests:
+          - not_null
+
+  - name: stg_player_game_adv_stats
+    description: Staged player advanced stats with performance tiers
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: player_id
+        tests:
+          - not_null
+
+  - name: stg_player_game_adv_stats_extended
+    description: Extended player advanced stats with dynamic per-season tiering
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: player_id
+        tests:
+          - not_null
+
+  - name: stg_team_game_basic_stats
+    description: Staged team basic stats with four factors
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: team
+        tests:
+          - not_null
+
+  - name: stg_team_game_adv_stats
+    description: Staged team advanced stats with play style indicators
+    columns:
+      - name: game_id
+        tests:
+          - not_null
+      - name: team
+        tests:
+          - not_null
