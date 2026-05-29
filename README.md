@@ -2,6 +2,8 @@
 
 NBA analytics data warehouse built with dbt and DuckDB. Transforms raw basketball data (games, player stats, team stats, shot charts) into a dimensional model for analysis.
 
+[![Update NBA Data](https://github.com/nprasad2077/dbt_sample/actions/workflows/pipeline.yml/badge.svg?branch=dev)](https://github.com/nprasad2077/dbt_sample/actions/workflows/pipeline.yml)
+
 ## Architecture
 
 ```
