@@ -28,27 +28,27 @@ team_game_adv      → stg_team_adv
 
 ## Prerequisites
 
-- Python 3.11+
-- dbt-duckdb adapter (included in venv)
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [DuckDB CLI](https://duckdb.org/docs/installation/)
+- Git LFS (`git lfs install`)
 
 ## Setup
 
 ```bash
-# Activate virtual environment
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
+# Clone and pull LFS-tracked database
+git clone <repo-url>
+cd dbt_sample
+git lfs install
+git lfs pull
 
-# Install dbt packages
+# Install Python 3.12 (if not already available)
+uv python install 3.12
+
+# Run dbt build (uv handles venv + deps automatically)
 cd dbt_nba
-dbt deps --profiles-dir .
-
-# Load seed data (team/arena mappings)
-dbt seed --profiles-dir .
-
-# Run full build (models + tests)
-dbt build --profiles-dir .
+uv run --project .. dbt deps --profiles-dir .
+uv run --project .. dbt seed --profiles-dir .
+uv run --project .. dbt build --profiles-dir .
 ```
 
 ## Source Database
@@ -63,19 +63,48 @@ DuckDB database at `data/DB/dbt_nba.duckdb` containing:
 - `team_game_basic_stats` — Team box score totals
 - `team_game_adv_stats` — Team advanced metrics
 
+## Data Pipeline
+
+The full pipeline extracts source data from Postgres, runs dbt transformations, and copies the result to the reports database.
+
+### Prerequisites
+
+- DuckDB CLI installed
+- `POSTGRES_URL` environment variable set (e.g., `postgresql://user:pass@host:5432/dbname`)
+- dbt packages installed (`dbt deps --profiles-dir .` from `dbt_nba/`)
+
+### Run Full Pipeline
+
+```bash
+export POSTGRES_URL="postgresql://user:pass@host:5432/nba"
+./scripts/pipeline.sh
+```
+
+This will:
+1. Extract all 7 source tables from Postgres into `data/DB/dbt_nba.duckdb`
+2. Run `dbt build` (staging → intermediate → marts + tests)
+3. Copy the database to `dbt_nba/reports/sources/nba/dbt_nba.duckdb` for reporting
+
+### Run Extraction Only
+
+```bash
+export POSTGRES_URL="postgresql://user:pass@host:5432/nba"
+duckdb data/DB/dbt_nba.duckdb < scripts/extract.sql
+```
+
 ## Useful Commands
 
 ```bash
 # Run only staging layer
-dbt build --profiles-dir . --select "tag:staging"
+uv run --project .. dbt build --profiles-dir . --select "tag:staging"
 
 # Run the named pipeline selector (staging → intermediate → marts)
-dbt build --profiles-dir . --selector nba_pipeline
+uv run --project .. dbt build --profiles-dir . --selector nba_pipeline
 
 # Run tests only
-dbt test --profiles-dir .
+uv run --project .. dbt test --profiles-dir .
 
 # Generate docs
-dbt docs generate --profiles-dir .
-dbt docs serve --profiles-dir .
+uv run --project .. dbt docs generate --profiles-dir .
+uv run --project .. dbt docs serve --profiles-dir .
 ```
