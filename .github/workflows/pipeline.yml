@@ -8,10 +8,13 @@ on:
 jobs:
   update:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: astral-sh/setup-uv@v4
 
