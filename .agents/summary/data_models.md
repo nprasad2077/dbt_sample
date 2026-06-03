@@ -8,16 +8,23 @@ erDiagram
     dim_teams ||--o{ fct_team_game_stats : "team_key"
     dim_teams ||--o{ fct_player_game_stats : "team_key"
     dim_teams ||--o{ fct_player_game_shooting : "team_key, opponent_key"
+    dim_teams ||--o{ fct_player_shots : "team_key, opponent_key"
+    dim_teams ||--o{ fct_quarter_scoring : "team_key, opponent_key"
     dim_players ||--o{ fct_player_game_stats : "player_key"
     dim_players ||--o{ fct_player_game_shooting : "player_key"
+    dim_players ||--o{ fct_player_shots : "player_key"
     dim_dates ||--o{ fct_game_results : "date_key"
     dim_dates ||--o{ fct_player_game_stats : "date_key"
     dim_dates ||--o{ fct_player_game_shooting : "date_key"
+    dim_dates ||--o{ fct_player_shots : "date_key"
+    dim_dates ||--o{ fct_quarter_scoring : "date_key"
     dim_seasons ||--o{ fct_game_results : "season_key"
     dim_seasons ||--o{ fct_player_game_stats : "season_key"
+    dim_seasons ||--o{ fct_player_shots : "season_key"
+    dim_seasons ||--o{ fct_quarter_scoring : "season_key"
     dim_arenas ||--o{ fct_game_results : "arena_key"
     dim_arenas ||--o{ fct_player_game_stats : "arena_key"
-    dim_shot_zones ||--o{ fct_player_shots : "shot_zone_key"
+    dim_shot_zones ||--o{ fct_player_shots : "shot_distance_zone"
     dim_player_game_archetypes ||--o{ fct_player_game_stats : "archetype_key"
 
     dim_teams {
@@ -99,6 +106,9 @@ erDiagram
 | player_game_key | string | Surrogate key (game_id + player_id) |
 | player_key | string | FK → dim_players |
 | team_key | string | FK → dim_teams |
+| date_key | string | FK → dim_dates |
+| season_key | string | FK → dim_seasons |
+| arena_key | string | FK → dim_arenas |
 | archetype_key | string | FK → dim_player_game_archetypes |
 | minutes_played | float | Minutes on court |
 | points, assists, total_rebounds | int | Core box score stats |
@@ -115,6 +125,11 @@ erDiagram
 | Column | Type | Description |
 |--------|------|-------------|
 | player_game_shooting_key | string | Surrogate key |
+| player_key | string | FK → dim_players |
+| team_key | string | FK → dim_teams |
+| opponent_key | string | FK → dim_teams |
+| date_key | string | FK → dim_dates |
+| season_key | string | FK → dim_seasons |
 | fg_attempts, fg_makes, fg_pct | numeric | Field goal totals |
 | ft_attempts, ft_makes, ft_pct | numeric | Free throw totals |
 | three_point_attempts/makes/fg_pct | numeric | Three-point totals |
@@ -129,15 +144,73 @@ erDiagram
 
 ### fct_team_game_stats (grain: team × game)
 
-Key metrics: offensive/defensive/net rating, pace, four factors, play style indicators.
+| Column | Type | Description |
+|--------|------|-------------|
+| team_game_key | string | Surrogate key (game_id + team) |
+| team_key | string | FK → dim_teams |
+| date_key | string | FK → dim_dates |
+| season_key | string | FK → dim_seasons |
+| offensive_rating | float | Points per 100 possessions |
+| defensive_rating | float | Points allowed per 100 possessions |
+| net_rating | float | Offensive - defensive rating |
+| pace | float | Possessions per 48 minutes |
+| efg_pct | float | Effective field goal % (four factors) |
+| tov_pct | float | Turnover % (four factors) |
+| orb_pct | float | Offensive rebound % (four factors) |
+| ft_rate | float | Free throw rate (four factors) |
+| play_style | string | Play style classification |
 
-### fct_quarter_scoring (grain: game × quarter)
+### fct_quarter_scoring (grain: team × game × period)
 
-Quarter-level scoring breakdown for momentum analysis.
+| Column | Type | Description |
+|--------|------|-------------|
+| quarter_scoring_key | string | Surrogate key (game_id + team + period) |
+| date_key | string | FK → dim_dates |
+| season_key | string | FK → dim_seasons |
+| team_key | string | FK → dim_teams |
+| opponent_key | string | FK → dim_teams |
+| game_id | string | Game identifier |
+| period | string | Quarter/overtime label (Q1, Q2, Q3, Q4, OT1, etc.) |
+| points_scored | int | Team points in this period |
+| opponent_points_scored | int | Opponent points in this period |
+| period_point_differential | int | Team minus opponent for the period |
+| game_date | date | Game date |
 
 ### fct_player_shots (grain: shot attempt)
 
-Individual shot-level data with zone, distance, and outcome.
+| Column | Type | Description |
+|--------|------|-------------|
+| shot_key | string | Surrogate key (shot_id + shot_source) |
+| player_key | string | FK → dim_players |
+| team_key | string | FK → dim_teams |
+| opponent_key | string | FK → dim_teams |
+| date_key | string | FK → dim_dates |
+| season_key | string | FK → dim_seasons |
+| game_id | string | Game identifier |
+| shot_id | string | Source shot identifier |
+| shot_source | string | `shot_chart` or `box_score_ft` |
+| is_playoff | bool | Playoff game flag |
+| team_location | string | Home/Away |
+| game_result | string | Win/Loss |
+| quarter_number | int | Period of the shot |
+| is_overtime_shot | bool | Shot in overtime flag |
+| seconds_remaining_in_quarter | int | Clock time |
+| shot_x_coordinate | float | Court X position |
+| shot_y_coordinate | float | Court Y position |
+| is_made | bool | Shot outcome |
+| shot_type | string | Raw shot type description |
+| shot_point_value | int | Points if made (1, 2, or 3) |
+| is_three_pointer | bool | Three-point attempt flag |
+| is_free_throw | bool | Free throw flag |
+| distance_ft | int | Shot distance in feet |
+| shot_distance_zone | string | Zone classification (see below) |
+| points_generated | int | Actual points scored (0 or point value) |
+| team_had_lead | bool | Team winning at time of shot |
+| team_score_at_shot | int | Team score before shot |
+| opponent_score_at_shot | int | Opponent score before shot |
+| score_margin_at_shot | int | Team lead/deficit |
+| is_clutch_shot | bool | Shot in clutch time |
+| game_date | date | Game date |
 
 ## Shot Zone Classification
 
@@ -154,8 +227,8 @@ Individual shot-level data with zone, distance, and outcome.
 ## Player Archetype Dimensions
 
 Archetypes are combinatorial, derived from:
-- **usage_tier** — Player's share of team possessions
-- **impact_tier** — Overall contribution level
-- **shooting_efficiency_tier** — Scoring efficiency classification
+- **usage_tier** — Player's share of team possessions (from dynamic season thresholds)
+- **impact_tier** — Overall contribution level (from net rating percentiles)
+- **shooting_efficiency_tier** — Scoring efficiency classification (from true shooting percentiles)
 - **minutes_based_role** — Starter/rotation/bench classification
 - **Boolean flags** — is_double_double, is_triple_double, is_versatile, is_defensive_specialist, is_three_and_d

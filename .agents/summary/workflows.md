@@ -2,7 +2,7 @@
 
 ## Pipeline Execution
 
-### Full Build
+### Full Build (Local)
 
 ```mermaid
 sequenceDiagram
@@ -14,7 +14,7 @@ sequenceDiagram
     dbt->>dbt: Install dbt_utils 1.3.1
 
     Dev->>dbt: dbt seed --profiles-dir .
-    dbt->>DB: Load team_maps, arena_maps, team_abbreviation_mappings
+    dbt->>DB: Load team_maps, arena_maps, etc.
 
     Dev->>dbt: dbt build --profiles-dir .
     dbt->>DB: Create staging views (10)
@@ -23,6 +23,42 @@ sequenceDiagram
     dbt->>DB: Create/update fact tables (6, incremental)
     dbt->>dbt: Run tests (unique, not_null, accepted_values)
     dbt-->>Dev: Build complete
+```
+
+### CI/CD Pipeline (GitHub Actions)
+
+```mermaid
+sequenceDiagram
+    participant GH as GitHub Actions
+    participant PG as Postgres (remote)
+    participant DB as DuckDB
+    participant dbt as dbt CLI
+
+    Note over GH: Triggered daily 06:00 UTC or manual
+    GH->>GH: Checkout repo (with LFS)
+    GH->>GH: Setup uv + DuckDB CLI
+    GH->>PG: extract.sql (DuckDB Postgres extension)
+    PG-->>DB: 7 tables created in data/DB/dbt_nba.duckdb
+    GH->>dbt: dbt deps + dbt build
+    dbt->>DB: Full pipeline execution
+    GH->>GH: Copy DB to reports/sources/nba/
+    GH->>GH: git commit + push updated .duckdb files
+```
+
+### Extraction Flow
+
+```mermaid
+flowchart TD
+    A[pipeline.sh starts] --> B{POSTGRES_URL set?}
+    B -->|No| C[Error: exit]
+    B -->|Yes| D[Delete existing dbt_nba.duckdb]
+    D --> E[Run extract.sql via DuckDB CLI]
+    E --> F[INSTALL postgres extension]
+    F --> G[ATTACH Postgres as read-only]
+    G --> H[CREATE OR REPLACE 7 tables]
+    H --> I[DETACH Postgres]
+    I --> J[dbt deps + dbt build]
+    J --> K[Copy DB to reports/sources/nba/]
 ```
 
 ### Incremental Refresh
@@ -57,9 +93,9 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    A[Raw team name<br/>'Los Angeles Lakers'] --> B[Join team_maps seed]
+    A[Raw team abbreviation<br/>e.g. 'SEA'] --> B[Join team_maps seed]
     B --> C{season_start_year<br/>BETWEEN start_year AND end_year?}
-    C -->|Yes| D[Conformed abbreviation<br/>'LAL']
+    C -->|Yes| D[Conformed to current name<br/>e.g. 'OKC']
     C -->|No| E[No match / data quality issue]
 ```
 
@@ -82,11 +118,21 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A[stg_player_shot_charts<br/>Field goal attempts] --> C[int_player_shots_enriched]
-    B[stg_player_game_basic_stats<br/>Free throw attempts derived] --> C
-    C --> D[Unified shot-level dataset]
+    A[stg_player_shot_charts<br/>Field goal attempts<br/>shot_source='shot_chart'] --> C[int_player_shots_enriched]
+    B[stg_player_game_basic_stats<br/>Free throw attempts derived<br/>shot_source='box_score_ft'] --> C
+    C --> D[Unified shot-level dataset<br/>with has_game_match filter]
     D --> E[fct_player_shots<br/>Individual shots]
     D --> F[fct_player_game_shooting<br/>Aggregated per game]
+```
+
+### Dynamic Tiering
+
+```mermaid
+flowchart TD
+    A[stg_player_game_basic_stats] --> B[stg_season_thresholds]
+    B --> C[Per-season percentile breakpoints<br/>for usage, impact, efficiency]
+    C --> D[stg_player_game_adv_stats_extended]
+    D --> E[Dynamic tier assignments<br/>that adjust per season]
 ```
 
 ## Development Workflow
@@ -94,17 +140,27 @@ flowchart TD
 ### Adding a New Model
 
 1. Create SQL file in appropriate layer directory (`models/staging/`, `models/intermediate/`, or `models/marts/`)
-2. Add model definition to `models/schema.yml` or layer-specific YAML (`_int_models.yml`)
-3. Apply appropriate tags via directory config in `dbt_project.yml`
+2. Add model definition to relevant YAML (`models/schema.yml` for staging, `models/intermediate/_int_models.yml` for intermediate)
+3. Tags are applied automatically via directory config in `dbt_project.yml`
 4. Run `dbt build --profiles-dir . --select model_name` to test
 5. Update Evidence/Streamlit queries if the model feeds reporting
+6. **Note**: No schema YAML exists for marts; tests for dimensions/facts should be added to a new `_marts_models.yml`
 
 ### Testing Strategy
 
 - **Source tests**: `unique` and `not_null` on primary/foreign keys in `schema.yml`
 - **Model tests**: `unique`, `not_null`, `accepted_values` on key columns
 - **Intermediate tests**: `dbt_utils.unique_combination_of_columns` for composite keys
-- **Configuration**: `severity: warn`, `store_failures: true` (results in `test_results` schema)
+- **Configuration**: `severity: warn`, `store_failures: true` (results stored in `test_results` schema)
+- **Gap**: Mart models (dimensions/facts) have no schema YAML or explicit tests
+
+### Running with uv
+
+All dbt commands should be run via `uv run` from the `dbt_nba/` directory:
+```bash
+uv run --project .. dbt build --profiles-dir .
+uv run --project .. dbt test --profiles-dir .
+```
 
 ## Reporting Refresh
 
@@ -119,8 +175,8 @@ sequenceDiagram
     Dev->>dbt: dbt build (updates marts)
     Note over dbt: DuckDB file updated
     Dev->>EV: npm run dev (in reports/)
-    EV->>EV: Reads dbt_nba.duckdb
-    EV->>EV: Executes SQL sources
+    EV->>EV: Reads dbt_nba.duckdb copy
+    EV->>EV: Executes 12 SQL sources
     EV-->>Dev: Dashboard at localhost
 ```
 
@@ -136,3 +192,5 @@ sequenceDiagram
     ST->>ST: Cache queries with @st.cache_data
     ST-->>Dev: Dashboard at :8501
 ```
+
+Note: Streamlit reads from the reports copy (`dbt_nba/reports/sources/nba/dbt_nba.duckdb`), so the DB must be copied after dbt build (the pipeline script does this automatically).

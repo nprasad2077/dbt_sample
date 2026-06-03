@@ -5,20 +5,22 @@
 ## Quick Reference
 
 - **Project**: NBA analytics data warehouse (dbt + DuckDB → star schema → dashboards)
-- **Stack**: dbt-duckdb, dbt_utils, Evidence BI, Streamlit, Plotly
+- **Stack**: dbt-duckdb, dbt_utils 1.3.1, Evidence BI, Streamlit, Plotly
 - **Architecture**: 3-layer pipeline (staging views → intermediate tables → incremental mart facts + dimension tables)
 - **Data**: 7 raw NBA tables → 10 staging → 4 intermediate → 7 dimensions + 6 facts
+- **CI/CD**: Daily GitHub Actions pipeline (Postgres extraction → DuckDB → dbt build → commit)
+- **Package Manager**: uv (Python >=3.11, <3.13)
 
 ## Documentation Map
 
 | File | Purpose | Consult When... |
 |------|---------|-----------------|
-| [codebase_info.md](codebase_info.md) | Project identity, tech stack, directory structure, config variables, source tables | You need project overview, directory layout, or configuration details |
+| [codebase_info.md](codebase_info.md) | Project identity, tech stack, directory structure, config variables, source tables | You need project overview, directory layout, configuration details, or schema YAML coverage |
 | [architecture.md](architecture.md) | System design, layer patterns, materialization strategy, reporting architecture | You need to understand how components connect, why design decisions were made, or how data flows |
 | [components.md](components.md) | Detailed listing of all models, seeds, and reporting components with responsibilities | You need to find a specific model, understand what it does, or identify which component handles a concern |
 | [interfaces.md](interfaces.md) | Database connections, source contracts, cross-layer references, query interfaces, pipeline selectors | You need to understand how systems connect, what schemas are used, or how to execute the pipeline |
 | [data_models.md](data_models.md) | Star schema ER diagram, fact table columns, dimension details, shot zones, archetypes | You need column-level detail, understand relationships between tables, or work with specific metrics |
-| [workflows.md](workflows.md) | Pipeline execution, incremental refresh, data transformation flows, development workflow | You need to run the pipeline, add new models, understand transformation logic, or debug data flow |
+| [workflows.md](workflows.md) | Pipeline execution, CI/CD, incremental refresh, data transformation flows, development workflow | You need to run the pipeline, add new models, understand transformation logic, or debug data flow |
 | [dependencies.md](dependencies.md) | External packages, Python deps, internal model dependency graph | You need to understand what packages are used, add dependencies, or trace model lineage |
 
 ## Key Concepts
@@ -39,6 +41,9 @@ Two independent dashboards read from the same DuckDB:
 - **Evidence BI** (Node.js) — SQL-in-markdown declarative dashboards
 - **Streamlit** (Python) — Interactive multi-page app with Plotly charts
 
+### CI/CD Pipeline
+Daily GitHub Actions workflow: extracts from Postgres → builds DuckDB → runs dbt → commits updated database files.
+
 ## Common Tasks
 
 | Task | Start Here |
@@ -46,7 +51,10 @@ Two independent dashboards read from the same DuckDB:
 | Add a new staging model | [workflows.md](workflows.md) → Development Workflow |
 | Understand a specific model's columns | [data_models.md](data_models.md) |
 | Find what feeds a fact table | [dependencies.md](dependencies.md) → Internal Model Dependencies |
-| Run the pipeline | [interfaces.md](interfaces.md) → Pipeline Execution Interface |
+| Run the pipeline | [workflows.md](workflows.md) → Pipeline Execution |
 | Add a new dashboard page | [components.md](components.md) → Reporting Components |
 | Understand the star schema | [data_models.md](data_models.md) → Star Schema Overview |
 | Debug team name mismatches | [architecture.md](architecture.md) → Team Abbreviation Conforming |
+| Add marts schema tests | [codebase_info.md](codebase_info.md) → Schema YAML Coverage (gap) |
+| Modify CI/CD pipeline | [workflows.md](workflows.md) → CI/CD Pipeline |
+| Add Python dependencies | [dependencies.md](dependencies.md) → pyproject.toml |
