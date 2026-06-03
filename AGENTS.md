@@ -15,17 +15,21 @@ dbt_sample/
 │   ├── reports/                # Evidence BI dashboard (Node.js)
 │   └── *.yml                   # Config: dbt_project, profiles, selectors, packages
 ├── streamlit_app/              # Python dashboard (7 pages, Plotly charts)
-├── data/DB/dbt_nba.duckdb      # Source database
-└── .devcontainer/              # Codespaces config (Python 3.11, auto-starts Streamlit)
+├── scripts/                    # ETL: pipeline.sh + extract.sql
+├── data/DB/dbt_nba.duckdb      # Source database (Git LFS)
+├── pyproject.toml              # Python deps (uv package manager)
+├── .github/workflows/          # Daily CI/CD pipeline
+└── .devcontainer/              # Codespaces config (Python 3.11)
 ```
 
 ## Architecture
 
-Three-layer medallion pipeline producing a star schema:
+Three-layer medallion pipeline with Postgres extraction producing a star schema:
 
 ```mermaid
 graph LR
-    DuckDB[(DuckDB)] --> STG[Staging<br/>views] --> INT[Intermediate<br/>tables] --> MARTS[Marts<br/>dim + fact]
+    PG[(Postgres)] --> EXT[extract.sql] --> DuckDB[(DuckDB)]
+    DuckDB --> STG[Staging<br/>views] --> INT[Intermediate<br/>tables] --> MARTS[Marts<br/>dim + fact]
     MARTS --> EV[Evidence BI]
     MARTS --> ST[Streamlit]
 ```
@@ -45,7 +49,10 @@ WHERE season_start_year >= start_year AND season_start_year < end_year
 All 6 fact tables use surrogate keys (`dbt_utils.generate_surrogate_key`) and a 30-day lookback window for idempotent refreshes.
 
 ### Shot Data Unification
-`int_player_shots_enriched` combines field goal attempts (from shot charts) with free throw attempts (derived from box scores) into a single shot-level dataset with `shot_source` discriminator.
+`int_player_shots_enriched` combines field goal attempts (from shot charts) with free throw attempts (derived from box scores) into a single shot-level dataset with `shot_source` discriminator (`shot_chart` / `box_score_ft`).
+
+### Dynamic Tiering
+`stg_season_thresholds` computes per-season percentile breakpoints. `stg_player_game_adv_stats_extended` uses these to assign dynamic usage/impact/efficiency tiers that adjust per season.
 
 ## Model Inventory
 
@@ -65,33 +72,49 @@ Key variables in `dbt_project.yml`:
 
 ## Pipeline Execution
 
-All commands run from `dbt_nba/` directory with `--profiles-dir .`:
-- Full build: `dbt build --profiles-dir .`
-- By layer: `dbt build --profiles-dir . --select "tag:staging"`
-- Named selector: `dbt build --profiles-dir . --selector nba_pipeline`
-- Seeds: `dbt seed --profiles-dir .`
+All dbt commands run from `dbt_nba/` directory via uv:
+- Full build: `uv run --project .. dbt build --profiles-dir .`
+- By layer: `uv run --project .. dbt build --profiles-dir . --select "tag:staging"`
+- Named selector: `uv run --project .. dbt build --profiles-dir . --selector nba_pipeline`
+- Seeds: `uv run --project .. dbt seed --profiles-dir .`
+- Full ETL: `./scripts/pipeline.sh` (requires `POSTGRES_URL` env var)
+
+## CI/CD
+
+GitHub Actions (`.github/workflows/pipeline.yml`):
+- **Schedule**: Daily at 06:00 UTC + manual dispatch
+- **Steps**: Checkout (LFS) → setup uv + DuckDB CLI → `./scripts/pipeline.sh` → commit updated .duckdb files
+- **Secret**: `POSTGRES_URL` (Postgres connection string)
 
 ## Reporting
 
 - **Evidence BI** (`dbt_nba/reports/`): 12 SQL queries in `sources/nba/`, single dashboard page. Reads local DuckDB copy.
-- **Streamlit** (`streamlit_app/app.py`): 7 pages (Overview, Teams, Players, Shot Charts, Head to Head, Game Trends, Quarter Analysis). Queries `main_marts.*` and `main_intermediate.*` schemas.
+- **Streamlit** (`streamlit_app/app.py`): 7 pages (Overview, Teams, Players, Shot Charts, Head to Head, Game Trends, Quarter Analysis). Queries `main_marts.*` and `main_intermediate.*` schemas from reports DuckDB copy.
 
 ## Dependencies
 
-- `dbt-labs/dbt_utils` 1.3.1 — surrogate keys, composite uniqueness tests
-- Python: streamlit 1.45.1, duckdb 1.3.0, plotly 6.1.2
+- `dbt-labs/dbt_utils` 1.3.1 — surrogate keys, unpivot, composite uniqueness tests
+- Python (via `pyproject.toml` + uv): dbt-duckdb, streamlit >=1.45.1, duckdb >=1.3.0, plotly >=6.1.2
+- DuckDB Postgres extension — source extraction
+
+## Known Gaps
+
+- No schema YAML for marts layer (dimensions/facts have no tests)
+- `team_mappings.csv` and `team_abbreviation_mappings.csv` usage by models is unclear
+- Pipeline has no failure alerting or retry logic
 
 ## Detailed Documentation
 
 For deeper information, see `.agents/summary/index.md` which maps to:
-- `architecture.md` — design decisions and layer patterns
+- `architecture.md` — design decisions, extraction architecture, layer patterns
 - `components.md` — model-by-model responsibilities
 - `data_models.md` — column-level schema details, ER diagrams
 - `interfaces.md` — connection paths, source contracts, query interfaces
-- `workflows.md` — pipeline execution, transformation flows, dev workflow
-- `dependencies.md` — full dependency graph
+- `workflows.md` — pipeline execution, CI/CD, transformation flows, dev workflow
+- `dependencies.md` — full dependency graph (Mermaid DAG)
 
 ## Custom Instructions
 <!-- This section is for human and agent-maintained operational knowledge.
      Add repo-specific conventions, gotchas, and workflow rules here.
      This section is preserved exactly as-is when re-running codebase-summary. -->
+

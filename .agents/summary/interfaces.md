@@ -4,13 +4,26 @@
 
 ### DuckDB Connection
 
-The project connects to a single DuckDB database file. Two connection paths exist:
+The project connects to a single DuckDB database file. Three connection paths exist:
 
 | Consumer | Path | Mode |
 |----------|------|------|
 | dbt | `../data/DB/dbt_nba.duckdb` (relative to `dbt_nba/`) | Read/Write |
 | Evidence BI | `reports/sources/nba/dbt_nba.duckdb` (local copy) | Read-only |
-| Streamlit | `dbt_nba/reports/sources/nba/dbt_nba.duckdb` | Read-only |
+| Streamlit | `dbt_nba/reports/sources/nba/dbt_nba.duckdb` (from repo root) | Read-only |
+
+Evidence connection is configured in `reports/sources/nba/connection.yaml`.
+
+### Extraction Interface (Postgres → DuckDB)
+
+`scripts/extract.sql` uses the DuckDB Postgres extension:
+```sql
+INSTALL postgres;
+LOAD postgres;
+ATTACH '$POSTGRES_URL' AS pg (TYPE postgres, READ_ONLY);
+```
+
+The `$POSTGRES_URL` variable is substituted at runtime. All 7 tables are extracted as `CREATE OR REPLACE TABLE ... AS SELECT * FROM pg.public.<table>`.
 
 ### Source Schema Contract
 
@@ -25,6 +38,7 @@ erDiagram
         date date
         int home_pts
         int visitor_pts
+        timestamp deleted_at
     }
     line_scores {
         string game_id FK
@@ -36,6 +50,7 @@ erDiagram
         string player_id FK
         string team
         float minutes_played
+        bool did_play
     }
     player_game_adv_stats {
         string game_id FK
@@ -79,7 +94,7 @@ Intermediate models depend on seeds for team/arena conforming:
 
 | Seed | Used By | Join Pattern |
 |------|---------|-------------|
-| `team_maps` | `int_games_enriched`, `int_player_performance`, `int_team_performance` | `ON team = team_abbr WHERE season_start_year BETWEEN start_year AND end_year` |
+| `team_maps` | `int_games_enriched`, `int_player_performance`, `int_team_performance` | `ON team = team_abbr WHERE season_start_year >= start_year AND < end_year` |
 | `arena_maps` | `int_games_enriched` | `ON arena = arena_name` |
 
 ### Cross-Layer References
@@ -99,6 +114,7 @@ graph TD
         stg_team_adv[stg_team_game_adv_stats]
         stg_shots[stg_player_shot_charts]
         stg_line_scores
+        stg_season[stg_season_thresholds]
     end
 
     subgraph Intermediate
@@ -121,6 +137,7 @@ graph TD
     stg_shots --> int_shots
     stg_player_basic --> int_shots
     stg_line_scores --> stg_games
+    stg_season --> stg_player_adv_ext
 ```
 
 ## Reporting Query Interface
@@ -145,7 +162,7 @@ Evidence queries read from the marts and intermediate schemas:
 
 ### Streamlit Query Interface
 
-The Streamlit app queries via `duckdb.connect(DB_PATH, read_only=True)` and uses:
+The Streamlit app queries via `duckdb.connect(DB_PATH, read_only=True)` with `@st.cache_data`:
 - `main_marts.fct_game_results`
 - `main_marts.fct_player_game_stats`
 - `main_marts.fct_team_game_stats`
@@ -177,8 +194,16 @@ definition:
 
 | Tag | Models | Command |
 |-----|--------|---------|
-| `staging` | All staging views | `dbt build --select "tag:staging"` |
-| `intermediate` | All intermediate tables | `dbt build --select "tag:intermediate"` |
-| `dimension` | All dimension tables | `dbt build --select "tag:dimension"` |
-| `fact` | All fact tables | `dbt build --select "tag:fact"` |
+| `staging` | 10 staging views | `dbt build --select "tag:staging"` |
+| `intermediate` | 4 intermediate tables | `dbt build --select "tag:intermediate"` |
+| `dimension` | 7 dimension tables | `dbt build --select "tag:dimension"` |
+| `fact` | 6 fact tables | `dbt build --select "tag:fact"` |
 | `marts` | All marts (dim + fact) | `dbt build --select "tag:marts"` |
+
+### CI/CD Interface
+
+GitHub Actions workflow (`.github/workflows/pipeline.yml`):
+- **Trigger**: Daily at 06:00 UTC + manual `workflow_dispatch`
+- **Environment**: ubuntu-latest with uv and DuckDB CLI
+- **Secret**: `POSTGRES_URL` (connection string)
+- **Output**: Commits updated `.duckdb` files to the repository
