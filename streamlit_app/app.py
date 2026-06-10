@@ -1,5 +1,6 @@
 import streamlit as st
 import duckdb
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from streamlit_echarts import st_echarts
@@ -7,37 +8,66 @@ from pathlib import Path
 
 st.set_page_config(page_title="NBA Analytics", page_icon="🏀", layout="wide")
 
+# ============================================================
+# CONNECTION & QUERY INFRASTRUCTURE
+# ============================================================
+
 DB_PATH = str(Path(__file__).resolve().parent.parent / "dbt_nba" / "reports" / "sources" / "nba" / "dbt_nba.duckdb")
 
 if not Path(DB_PATH).exists():
-    # Fallback: running from repo root
     DB_PATH = str(Path("dbt_nba") / "reports" / "sources" / "nba" / "dbt_nba.duckdb")
 
 
 @st.cache_resource
 def get_connection():
+    """Persistent read-only DuckDB connection."""
     return duckdb.connect(DB_PATH, read_only=True)
 
 
-conn = get_connection()
-
-
-@st.cache_data
-def query(sql):
+@st.cache_data(ttl=3600)
+def query(sql: str, params: list = None) -> pd.DataFrame:
+    """Execute SQL (optionally parameterized) and return cached DataFrame."""
+    conn = get_connection()
+    if params:
+        return conn.execute(sql, params).df()
     return conn.execute(sql).df()
 
 
-# --- Sidebar ---
+@st.cache_data(ttl=3600)
+def get_seasons() -> pd.DataFrame:
+    return query("SELECT season_start_year, season_display FROM main_marts.dim_seasons ORDER BY season_start_year DESC")
+
+
+# ============================================================
+# GLOBAL STATE & SIDEBAR
+# ============================================================
+
+seasons = get_seasons()
+season_options = seasons["season_start_year"].tolist()
+season_labels = dict(zip(seasons["season_start_year"], seasons["season_display"]))
+
+if "season" not in st.session_state:
+    st.session_state["season"] = season_options[0]
+
 st.sidebar.title("🏀 NBA Analytics")
-page = st.sidebar.radio(
-    "Navigate",
-    ["Overview", "Teams", "Players", "Shot Charts", "Head to Head", "Game Trends", "Quarter Analysis"],
+
+st.session_state["season"] = st.sidebar.selectbox(
+    "Season",
+    season_options,
+    index=season_options.index(st.session_state["season"]),
+    format_func=lambda x: season_labels[x],
 )
 
-# --- Helper: get seasons list ---
-@st.cache_data
-def get_seasons():
-    return query("select season_start_year, season_display from main_marts.dim_seasons order by season_start_year desc")
+st.sidebar.divider()
+
+page = st.sidebar.radio(
+    "Navigate",
+    ["Overview", "Teams", "Player Lab", "Shot Charts", "Head to Head", "Game Trends", "Quarter Analysis"],
+)
+
+# Convenience accessors
+SEASON = st.session_state["season"]
+SEASON_LABEL = season_labels[SEASON]
 
 
 
@@ -74,7 +104,7 @@ if page == "Overview":
             from main_marts.fct_game_results group by tier order by games desc
         """)
         fig = px.pie(comp, names="tier", values="games", title="Game Competitiveness Distribution")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     with col2:
         monthly = query("""
@@ -86,7 +116,7 @@ if page == "Overview":
         """)
         fig = px.bar(monthly, x="month", y="games", color="avg_pts",
                      color_continuous_scale="YlOrRd", title="Games per Month (Last 2 Years)")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
     # Season-over-season scoring trend
     st.subheader("Scoring Trend by Season")
@@ -101,7 +131,7 @@ if page == "Overview":
     fig_trend = px.line(season_trend, x="season_display", y="avg_pts",
                         title="Average Total Points per Game by Season", markers=True)
     fig_trend.update_layout(xaxis_title="Season", yaxis_title="Avg Total Points")
-    st.plotly_chart(fig_trend, use_container_width=True)
+    st.plotly_chart(fig_trend, width="stretch")
 
     st.subheader("Recent Games")
 
@@ -134,7 +164,7 @@ if page == "Overview":
         left join main_marts.dim_teams wt on g.winning_team_key = wt.team_key
         order by g.game_date desc limit 50
     """)
-    st.dataframe(games, use_container_width=True)
+    st.dataframe(games, width="stretch")
 
 
 
@@ -142,11 +172,9 @@ if page == "Overview":
 # PAGE: Teams
 # ============================================================
 elif page == "Teams":
-    st.title("🏆 Team Analytics")
+    st.title(f"🏆 Team Analytics — {SEASON_LABEL}")
 
-    seasons = get_seasons()
-    selected_season = st.selectbox("Season", seasons["season_start_year"].tolist(),
-                                   format_func=lambda x: seasons[seasons["season_start_year"]==x]["season_display"].values[0])
+    selected_season = SEASON
 
     ratings = query(f"""
         select team, count(*) as games,
@@ -167,9 +195,9 @@ elif page == "Teams":
     # Net Rating chart
     fig = px.bar(ratings, x="net_rtg", y="team", orientation="h",
                  color="net_rtg", color_continuous_scale="RdYlGn",
-                 title=f"Net Rating by Team ({seasons[seasons['season_start_year']==selected_season]['season_display'].values[0]})")
+                 title=f"Net Rating by Team ({SEASON_LABEL})")
     fig.update_layout(yaxis=dict(autorange="reversed"), height=700)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Offense vs Defense scatter
     fig2 = px.scatter(ratings, x="off_rtg", y="def_rtg", text="team",
@@ -178,7 +206,7 @@ elif page == "Teams":
     fig2.update_traces(textposition="top center")
     fig2.update_layout(xaxis_title="Offensive Rating →", yaxis_title="← Defensive Rating (lower is better)",
                        yaxis=dict(autorange="reversed"))
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
 
     # Four Factors
     st.subheader("Four Factors")
@@ -187,12 +215,12 @@ elif page == "Teams":
         fig3 = px.bar(ratings.sort_values("efg_pct", ascending=False), x="efg_pct", y="team",
                       orientation="h", title="Effective FG%", color="efg_pct", color_continuous_scale="Greens")
         fig3.update_layout(yaxis=dict(autorange="reversed"), height=600, showlegend=False)
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, width="stretch")
     with col2:
         fig4 = px.bar(ratings.sort_values("tov_rate"), x="tov_rate", y="team",
                       orientation="h", title="Turnover Rate (lower = better)", color="tov_rate", color_continuous_scale="Reds_r")
         fig4.update_layout(yaxis=dict(autorange="reversed"), height=600, showlegend=False)
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, width="stretch")
 
     # Play style breakdown
     st.subheader("Team Styles")
@@ -209,7 +237,7 @@ elif page == "Teams":
         fig5 = px.bar(styles, x="shot_selection_style", y="win_pct",
                       color="avg_off_rtg", color_continuous_scale="RdYlGn",
                       title="Shot Selection Style Win%")
-        st.plotly_chart(fig5, use_container_width=True)
+        st.plotly_chart(fig5, width="stretch")
 
     with col2:
         defense = query(f"""
@@ -223,7 +251,7 @@ elif page == "Teams":
         fig6 = px.bar(defense, x="defensive_activity", y="win_pct",
                       color="avg_def_rtg", color_continuous_scale="RdYlGn_r",
                       title="Defensive Activity Win% (color = Def Rtg, lower = better)")
-        st.plotly_chart(fig6, use_container_width=True)
+        st.plotly_chart(fig6, width="stretch")
 
     # Win% gauges for top teams
     st.subheader("Top Team Win Rates")
@@ -253,162 +281,281 @@ elif page == "Teams":
     }
     st_echarts(options=gauge_option, height="300px")
 
-    st.dataframe(ratings, use_container_width=True)
+    st.dataframe(ratings, width="stretch")
 
 
 
 # ============================================================
-# PAGE: Players
+# PAGE: Player Lab
 # ============================================================
-elif page == "Players":
-    st.title("👤 Player Analytics")
+elif page == "Player Lab":
+    st.title(f"👤 Player Lab — {SEASON_LABEL}")
 
-    seasons = get_seasons()
-    selected_season = st.selectbox("Season", seasons["season_start_year"].tolist(),
-                                   format_func=lambda x: seasons[seasons["season_start_year"]==x]["season_display"].values[0])
-    min_games = st.slider("Minimum Games Played", 5, 60, 20)
+    min_games = st.sidebar.slider("Min Games", 5, 60, 20, key="player_min_games")
 
-    players = query(f"""
-        select player_name, team, count(*) as games,
-               round(avg(points), 1) as ppg,
-               round(avg(assists), 1) as apg,
-               round(avg(total_rebounds), 1) as rpg,
-               round(avg(steals), 1) as spg,
-               round(avg(blocks), 1) as bpg,
-               round(avg(box_plus_minus), 2) as bpm,
-               round(avg(usage_pct), 1) as usage,
-               round(avg(true_shooting_pct) * 100, 1) as ts_pct,
-               round(avg(net_rating), 1) as net_rtg,
-               sum(case when is_double_double then 1 else 0 end) as double_doubles,
-               sum(case when is_triple_double then 1 else 0 end) as triple_doubles,
-               round(avg(three_pointers_made), 1) as threes_pg,
-               round(avg(turnovers), 1) as tov_pg,
-               round(avg(field_goals_made)::float / nullif(avg(field_goals_attempted), 0) * 100, 1) as fg_pct,
-               round(avg(three_pointers_made)::float / nullif(avg(three_pointers_attempted), 0) * 100, 1) as three_pct
-        from main_intermediate.int_player_performance
-        where season_start_year = {selected_season} and minutes_played >= 20
-        group by player_name, team
-        having count(*) >= {min_games}
-        order by bpm desc
-    """)
+    # --- Core player data ---
+    players = query("""
+        SELECT player_name, team, count(*) AS games,
+               round(avg(points), 1) AS ppg,
+               round(avg(assists), 1) AS apg,
+               round(avg(total_rebounds), 1) AS rpg,
+               round(avg(steals), 1) AS spg,
+               round(avg(blocks), 1) AS bpg,
+               round(avg(box_plus_minus), 2) AS bpm,
+               round(avg(usage_pct), 1) AS usage,
+               round(avg(true_shooting_pct) * 100, 1) AS ts_pct,
+               round(avg(net_rating), 1) AS net_rtg,
+               sum(CASE WHEN is_double_double THEN 1 ELSE 0 END) AS double_doubles,
+               sum(CASE WHEN is_triple_double THEN 1 ELSE 0 END) AS triple_doubles
+        FROM main_intermediate.int_player_performance
+        WHERE season_start_year = ? AND minutes_played >= 20
+        GROUP BY player_name, team
+        HAVING count(*) >= ?
+        ORDER BY bpm DESC
+    """, [SEASON, min_games])
 
-    # Usage vs Efficiency scatter
-    fig = px.scatter(players, x="usage", y="ts_pct", size="ppg",
-                     hover_name="player_name", color="bpm",
-                     color_continuous_scale="RdYlGn",
-                     title="Usage Rate vs True Shooting % (size = PPG, color = BPM)")
-    fig.update_layout(xaxis_title="Usage %", yaxis_title="True Shooting %", height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    tab_board, tab_compare, tab_archetypes = st.tabs(
+        ["📊 Leaderboard", "🔀 Comparison", "🧬 Archetypes"]
+    )
 
-    # Scoring vs Playmaking
-    col1, col2 = st.columns(2)
-    with col1:
-        fig2 = px.scatter(players, x="ppg", y="apg", hover_name="player_name",
-                          color="team", title="Scoring vs Playmaking", size="usage")
-        st.plotly_chart(fig2, use_container_width=True)
-    with col2:
-        top_scorers = players.nlargest(20, "ppg")
-        fig3 = px.bar(top_scorers, x="ppg", y="player_name", orientation="h",
-                      color="ts_pct", color_continuous_scale="RdYlGn",
-                      title="Top 20 Scorers (color = TS%)")
-        fig3.update_layout(yaxis=dict(autorange="reversed"), height=500)
-        st.plotly_chart(fig3, use_container_width=True)
+    # --- TAB: Leaderboard ---
+    with tab_board:
+        # Usage vs Efficiency quadrant scatter
+        fig = px.scatter(
+            players, x="usage", y="ts_pct", size="ppg",
+            hover_name="player_name", color="bpm",
+            color_continuous_scale="RdYlGn",
+            title="Usage vs True Shooting % (size = PPG, color = BPM)",
+        )
+        fig.update_layout(height=500, xaxis_title="Usage %", yaxis_title="True Shooting %")
+        # Quadrant lines at median
+        fig.add_hline(y=players["ts_pct"].median(), line_dash="dot", line_color="gray", opacity=0.4)
+        fig.add_vline(x=players["usage"].median(), line_dash="dot", line_color="gray", opacity=0.4)
+        st.plotly_chart(fig, width="stretch")
 
-    # Player comparison radar
-    st.subheader("Player Comparison")
-    player_list = players["player_name"].tolist()
-    selected_players = st.multiselect("Select players to compare", player_list, default=player_list[:3])
-    if selected_players:
-        comp = players[players["player_name"].isin(selected_players)]
-        categories = ["ppg", "apg", "rpg", "spg", "bpg", "usage", "ts_pct"]
-        labels = ["PPG", "APG", "RPG", "SPG", "BPG", "USG%", "TS%"]
-        # Normalize each category to 0-100 scale so radar fills evenly
-        cat_min = players[categories].min()
-        cat_max = players[categories].max()
-        fig4 = go.Figure()
-        for _, row in comp.iterrows():
-            normalized = [
-                100 * (row[c] - cat_min[c]) / (cat_max[c] - cat_min[c]) if cat_max[c] != cat_min[c] else 50
-                for c in categories
+        # Scoring vs Playmaking + Top Scorers side by side
+        col1, col2 = st.columns(2)
+        with col1:
+            fig2 = px.scatter(players, x="ppg", y="apg", hover_name="player_name",
+                              color="bpm", color_continuous_scale="RdYlGn",
+                              size="usage", title="Scoring vs Playmaking")
+            st.plotly_chart(fig2, width="stretch")
+        with col2:
+            top_scorers = players.nlargest(15, "ppg")
+            fig3 = px.bar(top_scorers, x="ppg", y="player_name", orientation="h",
+                          color="ts_pct", color_continuous_scale="RdYlGn",
+                          title="Top 15 Scorers (color = TS%)")
+            fig3.update_layout(yaxis=dict(autorange="reversed"), height=450)
+            st.plotly_chart(fig3, width="stretch")
+
+        # Enhanced leaderboard table
+        st.dataframe(
+            players,
+            column_config={
+                "ts_pct": st.column_config.ProgressColumn(
+                    "TS%", min_value=40, max_value=75, format="%.1f%%"
+                ),
+                "usage": st.column_config.ProgressColumn(
+                    "USG%", min_value=5, max_value=40, format="%.1f%%"
+                ),
+                "bpm": st.column_config.NumberColumn("BPM", format="%.2f"),
+            },
+            width="stretch",
+            hide_index=True,
+        )
+
+    # --- TAB: Comparison ---
+    with tab_compare:
+        player_list = players["player_name"].tolist()
+        selected_players = st.multiselect(
+            "Select players to compare", player_list, default=player_list[:3]
+        )
+        if selected_players:
+            comp = players[players["player_name"].isin(selected_players)]
+            categories = ["ppg", "apg", "rpg", "spg", "bpg", "usage", "ts_pct"]
+            labels = ["PPG", "APG", "RPG", "SPG", "BPG", "USG%", "TS%"]
+
+            # ECharts radar — actual values with per-stat max
+            # Distinct color palette to avoid similar blues
+            RADAR_COLORS = [
+                "#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4",
+                "#42d4f4", "#f032e6", "#bfef45", "#fabed4", "#469990",
             ]
-            fig4.add_trace(go.Scatterpolar(
-                r=normalized,
-                theta=labels,
-                fill="toself", name=row["player_name"]
-            ))
-        fig4.update_layout(title="Player Radar Comparison (normalized)", height=500,
-                           polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
-        st.plotly_chart(fig4, use_container_width=True)
+            radar_indicators = [
+                {"name": labels[i], "max": float(players[c].max() * 1.15)}
+                for i, c in enumerate(categories)
+            ]
+            radar_data = [
+                {
+                    "value": [float(row[c]) for c in categories],
+                    "name": row["player_name"],
+                    "lineStyle": {"color": RADAR_COLORS[i % len(RADAR_COLORS)], "width": 2.5},
+                    "areaStyle": {"color": RADAR_COLORS[i % len(RADAR_COLORS)], "opacity": 0.3},
+                    "itemStyle": {"color": RADAR_COLORS[i % len(RADAR_COLORS)]},
+                }
+                for i, (_, row) in enumerate(comp.iterrows())
+            ]
+            echarts_option = {
+                "legend": {"data": [d["name"] for d in radar_data], "top": "bottom"},
+                "color": RADAR_COLORS[:len(radar_data)],
+                "radar": {
+                    "indicator": radar_indicators,
+                    "shape": "polygon",
+                    "splitArea": {"areaStyle": {"color": ["#1a1a2e", "#16213e", "#0f3460", "#1a1a2e", "#16213e"]}},
+                    "axisLine": {"lineStyle": {"color": "rgba(200, 200, 200, 0.3)"}},
+                    "splitLine": {"lineStyle": {"color": "rgba(200, 200, 200, 0.2)"}},
+                },
+                "series": [{"type": "radar", "data": radar_data}],
+            }
+            st_echarts(options=echarts_option, height="500px")
 
-        # ECharts radar with proper per-stat max indicators
-        st.subheader("ECharts Radar (actual values)")
-        radar_indicators = [
-            {"name": "PPG", "max": float(players["ppg"].max() * 1.1)},
-            {"name": "APG", "max": float(players["apg"].max() * 1.1)},
-            {"name": "RPG", "max": float(players["rpg"].max() * 1.1)},
-            {"name": "SPG", "max": float(players["spg"].max() * 1.1)},
-            {"name": "BPG", "max": float(players["bpg"].max() * 1.1)},
-            {"name": "USG%", "max": float(players["usage"].max() * 1.1)},
-            {"name": "TS%", "max": float(players["ts_pct"].max() * 1.1)},
-        ]
-        radar_series_data = []
-        for _, row in comp.iterrows():
-            radar_series_data.append({
-                "value": [float(row[c]) for c in categories],
-                "name": row["player_name"],
-            })
-        echarts_radar_option = {
-            "legend": {"data": [d["name"] for d in radar_series_data]},
-            "radar": {"indicator": radar_indicators},
-            "series": [{"type": "radar", "data": radar_series_data}],
-        }
-        st_echarts(options=echarts_radar_option, height="500px")
+            # Side-by-side stat table
+            st.dataframe(
+                comp.set_index("player_name")[categories + ["bpm", "net_rtg", "games"]].rename(
+                    columns=dict(zip(categories, labels))
+                ),
+                width="stretch",
+            )
 
-    # Parallel coordinates comparison
-    st.subheader("Parallel Coordinates (multi-stat)")
-    top_parallel = players.nlargest(15, "bpm")
-    parallel_dims = ["ppg", "apg", "rpg", "usage", "ts_pct", "bpm", "net_rtg"]
-    parallel_labels = ["PPG", "APG", "RPG", "USG%", "TS%", "BPM", "Net Rtg"]
-    parallel_option = {
-        "parallelAxis": [
-            {"dim": i, "name": parallel_labels[i],
-             "min": float(top_parallel[parallel_dims[i]].min()),
-             "max": float(top_parallel[parallel_dims[i]].max())}
-            for i in range(len(parallel_dims))
-        ],
-        "tooltip": {"trigger": "item"},
-        "series": [{
-            "type": "parallel",
-            "lineStyle": {"width": 2, "opacity": 0.6},
-            "data": [
-                [float(row[c]) for c in parallel_dims]
-                for _, row in top_parallel.iterrows()
-            ],
-        }],
-    }
-    st_echarts(options=parallel_option, height="400px")
+            # Parallel coordinates for top 15 by BPM
+            st.subheader("Parallel Coordinates (Top 15 BPM)")
+            top_parallel = players.nlargest(15, "bpm")
+            parallel_dims = ["ppg", "apg", "rpg", "usage", "ts_pct", "bpm", "net_rtg"]
+            parallel_labels = ["PPG", "APG", "RPG", "USG%", "TS%", "BPM", "Net Rtg"]
+            parallel_option = {
+                "parallelAxis": [
+                    {"dim": i, "name": parallel_labels[i],
+                     "min": float(top_parallel[parallel_dims[i]].min()),
+                     "max": float(top_parallel[parallel_dims[i]].max())}
+                    for i in range(len(parallel_dims))
+                ],
+                "tooltip": {"trigger": "item"},
+                "series": [{
+                    "type": "parallel",
+                    "lineStyle": {"width": 2, "opacity": 0.6},
+                    "data": [
+                        [float(row[c]) for c in parallel_dims]
+                        for _, row in top_parallel.iterrows()
+                    ],
+                }],
+            }
+            st_echarts(options=parallel_option, height="400px")
 
-    # Archetype breakdown
-    st.subheader("Player Archetypes")
-    archetypes = query(f"""
-        select a.usage_tier, a.impact_tier, count(distinct pp.player_name) as players
-        from main_intermediate.int_player_performance pp
-        join main_marts.dim_player_game_archetypes a
-            on pp.usage_tier = a.usage_tier
-            and pp.impact_tier = a.impact_tier
-            and pp.shooting_efficiency_tier = a.shooting_efficiency_tier
-        where pp.season_start_year = {selected_season} and pp.minutes_played >= 20
-            and a.usage_tier != 'Insufficient Minutes'
-        group by a.usage_tier, a.impact_tier
-        order by players desc
-    """)
-    if not archetypes.empty:
-        fig_arch = px.treemap(archetypes, path=["usage_tier", "impact_tier"], values="players",
-                              title="Player Archetype Distribution",
-                              color="players", color_continuous_scale="Blues")
-        st.plotly_chart(fig_arch, use_container_width=True)
+    # --- TAB: Archetypes ---
+    with tab_archetypes:
+        # Modal archetype per player (most frequent tier combo) — with player detail
+        archetype_players = query("""
+            WITH player_archetype_counts AS (
+                SELECT player_name, team, usage_tier, impact_tier, shooting_efficiency_tier,
+                       count(*) AS games_in_archetype
+                FROM main_intermediate.int_player_performance
+                WHERE season_start_year = ? AND minutes_played >= 20
+                      AND usage_tier != 'Insufficient Minutes'
+                GROUP BY player_name, team, usage_tier, impact_tier, shooting_efficiency_tier
+            ),
+            player_modal AS (
+                SELECT *, ROW_NUMBER() OVER (
+                    PARTITION BY player_name, team ORDER BY games_in_archetype DESC
+                ) AS rn
+                FROM player_archetype_counts
+            )
+            SELECT player_name, team, usage_tier, impact_tier, shooting_efficiency_tier,
+                   games_in_archetype
+            FROM player_modal
+            WHERE rn = 1
+        """, [SEASON])
 
-    st.dataframe(players, use_container_width=True)
+        if not archetype_players.empty:
+            # Aggregate for sunburst
+            archetypes = (
+                archetype_players.groupby(["usage_tier", "impact_tier", "shooting_efficiency_tier"])
+                .agg(players=("player_name", "count"))
+                .reset_index()
+                .query("players >= 2")
+                .sort_values("players", ascending=False)
+            )
+
+            fig_arch = px.sunburst(
+                archetypes,
+                path=["usage_tier", "impact_tier", "shooting_efficiency_tier"],
+                values="players",
+                title="Player Archetype Hierarchy (click segments, then filter below)",
+                color="players", color_continuous_scale="Blues",
+            )
+            fig_arch.update_layout(height=600)
+            st.plotly_chart(fig_arch, width="stretch")
+
+            # Drill-down selectors
+            st.subheader("🔍 Drill Into Archetype")
+            usage_tiers = ["All"] + sorted(archetype_players["usage_tier"].unique().tolist())
+            sel_usage = st.selectbox("Usage Tier", usage_tiers, key="arch_usage")
+
+            filtered = archetype_players
+            if sel_usage != "All":
+                filtered = filtered[filtered["usage_tier"] == sel_usage]
+
+            impact_tiers = ["All"] + sorted(filtered["impact_tier"].unique().tolist())
+            sel_impact = st.selectbox("Impact Tier", impact_tiers, key="arch_impact")
+
+            if sel_impact != "All":
+                filtered = filtered[filtered["impact_tier"] == sel_impact]
+
+            eff_tiers = ["All"] + sorted(filtered["shooting_efficiency_tier"].unique().tolist())
+            sel_eff = st.selectbox("Shooting Efficiency Tier", eff_tiers, key="arch_eff")
+
+            if sel_eff != "All":
+                filtered = filtered[filtered["shooting_efficiency_tier"] == sel_eff]
+
+            # Show filtered player table with stats
+            st.caption(f"Showing {len(filtered)} players matching selection")
+            st.dataframe(
+                filtered[["player_name", "team", "usage_tier", "impact_tier",
+                          "shooting_efficiency_tier", "games_in_archetype"]]
+                .sort_values("games_in_archetype", ascending=False)
+                .reset_index(drop=True),
+                width="stretch", hide_index=True,
+            )
+
+        # Specialist flags breakdown — percentage-based threshold (25%)
+        st.subheader("Player Specialists")
+        specialists = query("""
+            SELECT player_name, team, count(*) AS games,
+                   round(avg(points), 1) AS ppg,
+                   round(avg(box_plus_minus), 2) AS bpm,
+                   round(100.0 * sum(CASE WHEN is_versatile THEN 1 ELSE 0 END) / count(*), 1) AS pct_versatile,
+                   round(100.0 * sum(CASE WHEN is_defensive_specialist THEN 1 ELSE 0 END) / count(*), 1) AS pct_def_spec,
+                   round(100.0 * sum(CASE WHEN is_three_and_d THEN 1 ELSE 0 END) / count(*), 1) AS pct_three_and_d
+            FROM main_intermediate.int_player_performance
+            WHERE season_start_year = ? AND minutes_played >= 20
+            GROUP BY player_name, team
+            HAVING count(*) >= ?
+        """, [SEASON, min_games])
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            versatile = specialists[specialists["pct_versatile"] >= 25].sort_values("pct_versatile", ascending=False)
+            st.metric("🎯 Versatile", len(versatile))
+            st.caption("≥25% of games with double-double stats")
+            st.dataframe(
+                versatile[["player_name", "team", "ppg", "pct_versatile"]],
+                hide_index=True, width="stretch",
+            )
+        with col2:
+            def_spec = specialists[specialists["pct_def_spec"] >= 25].sort_values("pct_def_spec", ascending=False)
+            st.metric("🛡️ Defensive Specialists", len(def_spec))
+            st.caption("≥25% of games as defensive specialist")
+            st.dataframe(
+                def_spec[["player_name", "team", "ppg", "pct_def_spec"]],
+                hide_index=True, width="stretch",
+            )
+        with col3:
+            three_d = specialists[specialists["pct_three_and_d"] >= 25].sort_values("pct_three_and_d", ascending=False)
+            st.metric("🏹 Three-and-D", len(three_d))
+            st.caption("≥25% of games as 3-and-D player")
+            st.dataframe(
+                three_d[["player_name", "team", "ppg", "pct_three_and_d"]],
+                hide_index=True, width="stretch",
+            )
 
 
 
@@ -418,9 +565,7 @@ elif page == "Players":
 elif page == "Shot Charts":
     st.title("🎯 Shot Analysis")
 
-    seasons = get_seasons()
-    selected_season = st.selectbox("Season", seasons["season_start_year"].tolist(),
-                                   format_func=lambda x: seasons[seasons["season_start_year"]==x]["season_display"].values[0])
+    selected_season = SEASON
 
     # Player shot chart (spatial)
     st.subheader("Player Shot Chart")
@@ -460,7 +605,7 @@ elif page == "Shot Charts":
                 plot_bgcolor="rgba(0,0,0,0)"
             )
             fig_court.update_traces(marker=dict(size=4))
-            st.plotly_chart(fig_court, use_container_width=True)
+            st.plotly_chart(fig_court, width="stretch")
 
     # Shot zone breakdown
     st.subheader("League Shot Zone Breakdown")
@@ -481,11 +626,11 @@ elif page == "Shot Charts":
     with col1:
         fig = px.bar(zone_data, x="shot_distance_zone", y="attempts", color="fg_pct",
                      color_continuous_scale="RdYlGn", title="Shot Attempts by Zone")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with col2:
         fig2 = px.bar(zone_data, x="shot_distance_zone", y="fg_pct", color="zone_group",
                       title="FG% by Shot Zone")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     # Clutch shooting
     st.subheader("Clutch Shooting Leaders")
@@ -505,7 +650,7 @@ elif page == "Shot Charts":
     fig3 = px.scatter(clutch, x="clutch_attempts", y="clutch_pct", size="clutch_makes",
                       hover_name="player_name", title="Clutch Shooting: Volume vs Accuracy",
                       color="clutch_pct", color_continuous_scale="RdYlGn")
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")
 
     # Shot profile types
     st.subheader("Shot Profile Distribution")
@@ -521,7 +666,7 @@ elif page == "Shot Charts":
     fig4 = px.treemap(profiles, path=["shot_profile_type"], values="player_games",
                       color="avg_ts", color_continuous_scale="RdYlGn",
                       title="Shot Profile Types (size = frequency, color = TS%)")
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig4, width="stretch")
 
 
 
@@ -561,13 +706,13 @@ elif page == "Head to Head":
             fig = px.bar(h2h, x="game_date", y="points", color="game_result",
                          title=f"{team_a} Points vs {team_b} (Last 20 Meetings)",
                          color_discrete_map={"W": "#22c55e", "L": "#dc2626"})
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
             # Rating comparison
             st.subheader("Average Ratings in Matchup")
             avg_stats = h2h[["offensive_rating", "defensive_rating", "net_rating", "pace"]].mean()
-            st.dataframe(avg_stats.to_frame("Average").T, use_container_width=True)
-            st.dataframe(h2h, use_container_width=True)
+            st.dataframe(avg_stats.to_frame("Average").T, width="stretch")
+            st.dataframe(h2h, width="stretch")
         else:
             st.info("No head-to-head games found between these teams.")
     else:
@@ -598,12 +743,12 @@ elif page == "Game Trends":
     fig.add_scatter(x=pace["season"], y=pace["avg_pace"], name="Pace", yaxis="y2")
     fig.update_layout(yaxis2=dict(title="Pace", overlaying="y", side="right"),
                       yaxis_title="Avg Points/Game")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     # Efficiency trend
     fig_eff = px.area(pace, x="season", y="avg_efg_pct",
                       title="League-Wide Effective FG% Trend")
-    st.plotly_chart(fig_eff, use_container_width=True)
+    st.plotly_chart(fig_eff, width="stretch")
 
     # Game Drama
     drama = query("""
@@ -619,7 +764,7 @@ elif page == "Game Trends":
 
     fig2 = px.area(drama, x="season", y=["clutch_pct", "blowout_pct", "ot_pct"],
                    title="Game Drama: Clutch (≤5pt) vs Blowouts (20+) vs OT")
-    st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, width="stretch")
 
     # Home court advantage
     home = query("""
@@ -635,7 +780,7 @@ elif page == "Game Trends":
                    title="Home Court Advantage Over Time", markers=True)
     fig3.update_layout(yaxis_range=[40, 70])
     fig3.add_hline(y=50, line_dash="dash", line_color="gray", annotation_text="50%")
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")
 
     # Points distribution
     st.subheader("Scoring Distribution")
@@ -646,7 +791,7 @@ elif page == "Game Trends":
                         title="Distribution of Total Points Scored per Game",
                         color_discrete_sequence=["#3b82f6"])
     fig4.update_layout(xaxis_title="Total Points", yaxis_title="Games")
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig4, width="stretch")
 
 
 
@@ -656,9 +801,7 @@ elif page == "Game Trends":
 elif page == "Quarter Analysis":
     st.title("⏱️ Quarter-by-Quarter Analysis")
 
-    seasons = get_seasons()
-    selected_season = st.selectbox("Season", seasons["season_start_year"].tolist(),
-                                   format_func=lambda x: seasons[seasons["season_start_year"]==x]["season_display"].values[0])
+    selected_season = SEASON
 
     # Scoring by quarter
     quarter_avg = query(f"""
@@ -677,13 +820,13 @@ elif page == "Quarter Analysis":
                      title="Average Points Scored per Quarter",
                      color="avg_pts", color_continuous_scale="Blues",
                      labels={"period": "Quarter", "avg_pts": "Avg Points"})
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     with col2:
         fig2 = px.bar(quarter_avg, x="period", y="avg_diff",
                       title="Avg Point Differential by Quarter",
                       color="avg_diff", color_continuous_scale="RdYlGn",
                       labels={"period": "Quarter", "avg_diff": "Avg Differential"})
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
     # Best Q1/Q4 teams
     st.subheader("Best Teams by Quarter")
@@ -707,7 +850,7 @@ elif page == "Quarter Analysis":
                   color="avg_diff", color_continuous_scale="RdYlGn",
                   title=f"{quarter_sel} Scoring Leaders (color = point diff)")
     fig3.update_layout(yaxis=dict(autorange="reversed"), height=600)
-    st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig3, width="stretch")
 
     # Comeback analysis
     st.subheader("Comeback Games")
@@ -744,7 +887,7 @@ elif page == "Quarter Analysis":
         fig4 = px.bar(comebacks, x="team", y="comeback_pct",
                       color="comebacks", title="Comeback Rate (Down 10+ After Q3)",
                       labels={"comeback_pct": "Comeback %"})
-        st.plotly_chart(fig4, use_container_width=True)
-        st.dataframe(comebacks, use_container_width=True)
+        st.plotly_chart(fig4, width="stretch")
+        st.dataframe(comebacks, width="stretch")
     else:
         st.info("No comeback data available for this season.")
