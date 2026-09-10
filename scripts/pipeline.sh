@@ -16,10 +16,10 @@ mkdir -p "$(dirname "$DB_PATH")"
 rm -f "$DB_PATH"
 envsubst < "$REPO_ROOT/scripts/extract.sql" | duckdb "$DB_PATH"
 
-echo "==> Running dbt build..."
+echo "==> Running dbt build --full-refresh..."
 cd "$REPO_ROOT/dbt_nba"
 uv run --project "$REPO_ROOT" dbt deps --profiles-dir .
-uv run --project "$REPO_ROOT" dbt build --profiles-dir .
+uv run --project "$REPO_ROOT" dbt build --full-refresh --profiles-dir .
 
 echo "==> Copying database to reports..."
 cp "$DB_PATH" "$REPORTS_DB"
